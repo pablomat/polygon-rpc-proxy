@@ -2,6 +2,16 @@ variable "app_name" {
   description = "Name prefix for all resources."
   type        = string
   default     = "polygon-rpc-proxy"
+
+  validation {
+    condition = (
+      length(var.app_name) >= 2 &&
+      length(var.app_name) <= 32 &&
+      can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])$", var.app_name)) &&
+      !startswith(var.app_name, "internal-")
+    )
+    error_message = "app_name must be 2-32 lowercase letters, digits, or hyphens; start and end with a letter or digit; and not start with internal-."
+  }
 }
 
 variable "region" {

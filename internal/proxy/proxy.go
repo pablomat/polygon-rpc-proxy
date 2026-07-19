@@ -32,12 +32,13 @@ type Handler struct {
 
 type stateKey struct{}
 
-// reqState carries the method label and any transport failure back to
-// handleRPC, which emits the single per-request log line.
+// reqState carries the method label and any proxy failure back to handleRPC,
+// which emits the single per-request log line.
 type reqState struct {
-	method       string
-	transportErr error
-	cause        string
+	method           string
+	transportErr     error
+	responseWriteErr error
+	cause            string
 }
 
 // New constructs a Handler. cfg.UpstreamURL and positive limits are expected
@@ -153,9 +154,10 @@ func (h *Handler) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleRPC(w http.ResponseWriter, r *http.Request) {
 	started := time.Now()
-	recorder := &statusRecorder{ResponseWriter: w}
 	state := &reqState{method: "_invalid"}
+	recorder := &statusRecorder{ResponseWriter: w}
 	defer func() {
+		state.responseWriteErr = recorder.WriteError()
 		duration := time.Since(started)
 		status := recorder.Status()
 		h.metrics.RequestSeconds.WithLabelValues(state.method).Observe(duration.Seconds())
@@ -263,21 +265,29 @@ func (h *Handler) logRequest(ctx context.Context, httpMethod string, state *reqS
 		slog.Int("status", status),
 		slog.Duration("duration", duration),
 	}
-	if state.transportErr == nil {
-		h.log.LogAttrs(ctx, slog.LevelInfo, "request completed", attrs...)
+	if state.transportErr == nil && state.responseWriteErr != nil {
+		attrs = append(attrs,
+			slog.String("cause", "downstream_write"),
+			slog.Any("err", state.responseWriteErr),
+		)
+		h.log.LogAttrs(ctx, slog.LevelError, "response write failed", attrs...)
 		return
 	}
-	attrs = append(attrs,
-		slog.String("cause", state.cause),
-		slog.Any("err", state.transportErr),
-	)
-	level := slog.LevelError
-	message := "upstream request failed"
-	if state.cause == "canceled" {
-		level = slog.LevelInfo
-		message = "upstream request canceled"
+	if state.transportErr != nil {
+		attrs = append(attrs,
+			slog.String("cause", state.cause),
+			slog.Any("err", state.transportErr),
+		)
+		level := slog.LevelError
+		message := "upstream request failed"
+		if state.cause == "canceled" {
+			level = slog.LevelInfo
+			message = "upstream request canceled"
+		}
+		h.log.LogAttrs(ctx, level, message, attrs...)
+		return
 	}
-	h.log.LogAttrs(ctx, level, message, attrs...)
+	h.log.LogAttrs(ctx, slog.LevelInfo, "request completed", attrs...)
 }
 
 func classifyUpstreamError(ctx context.Context, err error) (status int, cause string) {
@@ -298,7 +308,8 @@ func classifyUpstreamError(ctx context.Context, err error) (status int, cause st
 // to the original writer for streaming, trailers, and protocol upgrades.
 type statusRecorder struct {
 	http.ResponseWriter
-	status int
+	status   int
+	writeErr error
 }
 
 func (s *statusRecorder) WriteHeader(code int) {
@@ -317,7 +328,14 @@ func (s *statusRecorder) Write(p []byte) (int, error) {
 	if s.status == 0 {
 		s.status = http.StatusOK
 	}
-	return s.ResponseWriter.Write(p)
+	n, err := s.ResponseWriter.Write(p)
+	if n != len(p) && err == nil {
+		err = io.ErrShortWrite
+	}
+	if err != nil && s.writeErr == nil {
+		s.writeErr = err
+	}
+	return n, err
 }
 
 func (s *statusRecorder) Unwrap() http.ResponseWriter { return s.ResponseWriter }
@@ -328,3 +346,5 @@ func (s *statusRecorder) Status() int {
 	}
 	return s.status
 }
+
+func (s *statusRecorder) WriteError() error { return s.writeErr }

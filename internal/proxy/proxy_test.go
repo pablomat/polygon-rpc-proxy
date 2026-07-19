@@ -350,6 +350,42 @@ func TestProxyRecordsTruncatedUpstreamResponse(t *testing.T) {
 	}
 }
 
+func TestProxyLogsDownstreamWriteFailure(t *testing.T) {
+	writeErr := errors.New("client connection closed")
+	transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode:    http.StatusOK,
+			Header:        make(http.Header),
+			Body:          io.NopCloser(strings.NewReader(`{"result":"0x89"}`)),
+			ContentLength: 17,
+			Request:       r,
+		}, nil
+	})
+	var logs bytes.Buffer
+	h, metrics := newHandler(
+		t,
+		testConfig("http://upstream.invalid"),
+		&http.Client{Transport: transport},
+		slog.New(slog.NewJSONHandler(&logs, nil)),
+	)
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"method":"eth_chainId"}`))
+	req.Header.Set(requestIDHeader, "request-write-failure")
+	h.ServeHTTP(&errorResponseWriter{header: make(http.Header), err: writeErr}, req)
+
+	if got := testutil.ToFloat64(metrics.RequestsTotal.WithLabelValues("eth_chainId", "200")); got != 1 {
+		t.Errorf("request counter = %v", got)
+	}
+	if got := testutil.CollectAndCount(metrics.UpstreamErrors); got != 0 {
+		t.Errorf("downstream write created %d upstream error series", got)
+	}
+	events := decodeLogs(t, &logs)
+	if len(events) != 1 || events[0]["level"] != "ERROR" || events[0]["msg"] != "response write failed" ||
+		events[0]["request_id"] != "request-write-failure" || events[0]["cause"] != "downstream_write" ||
+		events[0]["status"] != float64(http.StatusOK) {
+		t.Errorf("downstream-write logs = %#v", events)
+	}
+}
+
 func TestProxyCancellationIsInformationalAndReleasesAdmission(t *testing.T) {
 	started := make(chan struct{})
 	transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
@@ -723,6 +759,15 @@ type headerRecorder struct {
 func (r *headerRecorder) Header() http.Header         { return r.header }
 func (r *headerRecorder) WriteHeader(code int)        { r.codes = append(r.codes, code) }
 func (r *headerRecorder) Write(p []byte) (int, error) { return len(p), nil }
+
+type errorResponseWriter struct {
+	header http.Header
+	err    error
+}
+
+func (w *errorResponseWriter) Header() http.Header       { return w.header }
+func (w *errorResponseWriter) WriteHeader(int)           {}
+func (w *errorResponseWriter) Write([]byte) (int, error) { return 0, w.err }
 
 type blockingCollector struct {
 	desc        *prometheus.Desc

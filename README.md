@@ -97,7 +97,9 @@ Prometheus metrics include:
 - `rpc_proxy_in_flight_requests`
 
 Client-derived method labels are syntax-checked and capped at 100 distinct
-values per process. Additional labels are reported as `other`.
+values per process. Slots are allocated to first-seen names for the process
+lifetime, so a burst of unique names can exhaust them; later unseen names are
+reported as `other`. This affects metric detail, not request forwarding.
 
 ## Test and build
 
@@ -113,6 +115,7 @@ make shellcheck    # deployment script linting
 `make image` prefers a usable Docker installation and falls back to Podman.
 Set `CONTAINER_ENGINE=docker` or `CONTAINER_ENGINE=podman` to choose explicitly;
 `IMAGE` and `TAG` override the default `polygon-rpc-proxy:dev` image reference.
+Podman builds use Docker schema 2 so Dockerfile health-check metadata is kept.
 
 Tests cover payload and header forwarding, batches, CORS, compression,
 request IDs, resource limits, cancellation, upstream failures, telemetry, and
@@ -134,7 +137,9 @@ make aws-deploy
 
 The deployment workflow verifies the AWS identity and Git state, creates the
 infrastructure, publishes the current commit to ECR, resolves its immutable
-digest, updates ECS, waits for healthy targets, and runs end-to-end checks.
+digest, updates ECS, waits for healthy targets and public endpoint propagation,
+and runs end-to-end checks. HTTPS readiness always verifies the certificate;
+the workflow never bypasses TLS verification.
 
 TLS is optional. To let Terraform manage a Route 53 alias and ACM certificate,
 copy the example and set a hostname in an existing public hosted zone:
@@ -152,14 +157,21 @@ make aws-smoke
 make aws-destroy
 ```
 
+The smoke command logs the Terraform variable source it selected. Without
+`terraform/deployment.tfvars` (or `TF_VARS_FILE`) it evaluates the HTTP defaults;
+with the TLS file it evaluates the custom hostname. Use the same variable file
+that was used for deployment so the final drift check describes the intended
+stack.
+
 See [terraform/README.md](terraform/README.md) for topology, inputs, optional
 controls, and teardown behavior.
 
 ## Design choices and limitations
 
 - Fargate tasks run without public IPs behind an ALB. The container filesystem
-  is read-only, the application task role has no permissions, and task egress
-  is limited to TCP 443.
+  is read-only, the application task role has no permissions, and its security
+  group permits TCP 443 to any IPv4 destination. Traffic to AmazonProvidedDNS
+  is outside security-group filtering.
 - ECR tags are immutable and ECS receives the resolved image digest rather
   than a mutable tag.
 - The default deployment uses one NAT gateway and pins the service to the same

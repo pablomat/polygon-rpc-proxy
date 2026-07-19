@@ -28,19 +28,66 @@ case "${rpc_url}" in
 esac
 [[ "${host}" != */* ]] || die "rpc_url must not contain a path"
 
+smoke_ready_timeout="${SMOKE_READY_TIMEOUT:-300}"
+[[ "${smoke_ready_timeout}" =~ ^[1-9][0-9]*$ ]] || die "SMOKE_READY_TIMEOUT must be a positive number of seconds"
+
 curl_common=(--connect-timeout 10 --max-time 30 --retry 3 --retry-delay 2 --retry-max-time 45 --retry-connrefused --silent --show-error)
+resolve_args=()
 if [[ -n "${SMOKE_RESOLVE_IP:-}" ]]; then
   [[ "${SMOKE_RESOLVE_IP}" =~ ^[0-9A-Fa-f:.]+$ ]] || die "SMOKE_RESOLVE_IP must be a literal IPv4 or IPv6 address"
-  curl_common+=(--resolve "${host}:${port}:${SMOKE_RESOLVE_IP}")
+  resolve_args+=(--resolve "${host}:${port}:${SMOKE_RESOLVE_IP}")
+  curl_common+=("${resolve_args[@]}")
   log "Using explicit curl resolution override ${host}:${port}:${SMOKE_RESOLVE_IP}; system DNS is not being tested"
 fi
 
 tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/rpc-proxy-smoke.XXXXXX")"
 cleanup() {
-  rm -f -- "${tmp_dir}/body" "${tmp_dir}/headers" "${tmp_dir}/oversized"
+  rm -f -- "${tmp_dir}/body" "${tmp_dir}/curl-error" "${tmp_dir}/headers" "${tmp_dir}/oversized"
   rmdir -- "${tmp_dir}"
 }
 trap cleanup EXIT
+
+# ECS service stability and target-group health do not guarantee that a newly
+# created public DNS record, listener, or ACM certificate has propagated to the
+# ALB data plane. Probe the real endpoint until it is reachable and, in HTTPS
+# mode, presents a chain trusted by curl. Never weaken this check with --insecure.
+wait_for_public_endpoint() {
+  local actual curl_status last_error
+  local deadline=$((SECONDS + smoke_ready_timeout))
+
+  while true; do
+    curl_status=0
+    : >"${tmp_dir}/curl-error"
+    if actual="$(curl --connect-timeout 5 --max-time 10 --silent --show-error \
+      "${resolve_args[@]}" -o "${tmp_dir}/body" -w '%{http_code}' "${rpc_url}/healthz" \
+      2>"${tmp_dir}/curl-error")"; then
+      curl_status=0
+    else
+      curl_status=$?
+    fi
+
+    if [[ "${curl_status}" == "0" && "${actual}" == "200" ]] &&
+      jq -e '.status == "ok"' "${tmp_dir}/body" >/dev/null 2>&1; then
+      return
+    fi
+
+    last_error="$(<"${tmp_dir}/curl-error")"
+    last_error="${last_error%%$'\n'*}"
+    if ((SECONDS >= deadline)); then
+      if [[ "${curl_status}" != "0" ]]; then
+        die "public endpoint was not ready within ${smoke_ready_timeout}s (curl exit ${curl_status}: ${last_error:-unknown error})"
+      fi
+      die "public endpoint was not ready within ${smoke_ready_timeout}s (HTTP ${actual:-000} or invalid health body)"
+    fi
+
+    if [[ "${curl_status}" != "0" ]]; then
+      warn "public endpoint not ready (curl exit ${curl_status}: ${last_error:-unknown error}); retrying"
+    else
+      warn "public endpoint returned HTTP ${actual:-000} or an invalid health body; retrying"
+    fi
+    sleep 5
+  done
+}
 
 expect_status() {
   local expected="$1"
@@ -53,6 +100,9 @@ expect_status() {
 log "Waiting for ECS and ALB health"
 aws ecs wait services-stable --region "${region}" --cluster "${cluster}" --services "${service}"
 aws elbv2 wait target-in-service --region "${region}" --target-group-arn "${target_group}"
+
+log "Waiting up to ${smoke_ready_timeout}s for public endpoint readiness"
+wait_for_public_endpoint
 
 log "Checking health and JSON-RPC forwarding at ${rpc_url}"
 expect_status 200 "${rpc_url}/healthz"

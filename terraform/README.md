@@ -57,7 +57,9 @@ The workflow validates its tools, Terraform configuration, Git state, and AWS
 identity. On a new stack it creates ECR with zero running tasks, builds the
 current commit for Linux AMD64, pushes it under the full commit SHA, and
 resolves the registry digest. Terraform then applies a saved release plan,
-waits for ECS and ALB health, and runs the deployed smoke tests.
+waits for ECS and ALB health, then waits up to five minutes for public DNS,
+listener, and certificate propagation before running the deployed smoke tests.
+TLS verification remains enabled throughout.
 
 An existing immutable commit tag is reused. The selected digest and desired
 task count are written to ignored
@@ -95,6 +97,11 @@ make aws-smoke
 The suite checks AWS health, HTTP and TLS behavior, representative Polygon
 calls, request correlation in CloudWatch Logs, and Terraform drift.
 
+Its first line reports the selected variable source. If no
+`terraform/deployment.tfvars` or `TF_VARS_FILE` exists, it evaluates the HTTP
+defaults. Keep that selection consistent with the deployment being checked;
+otherwise the final plan correctly reports the configuration difference.
+
 Validate the local Terraform and shell code separately with:
 
 ```bash
@@ -120,6 +127,7 @@ preserving the external hosted zone and domain.
 | `CONTAINER_ENGINE` | Select `docker` or `podman` explicitly |
 | `TF_VARS_FILE` | Load a different Terraform variables file |
 | `SMOKE_RESOLVE_IP` | Test a specific ALB address while diagnosing local DNS |
+| `SMOKE_READY_TIMEOUT` | Override the public endpoint readiness timeout in seconds (default `300`) |
 | `DEPLOY_ALLOW_DIRTY=1` | Permit a uniquely tagged diagnostic image from a dirty tree |
 | `TF_AUTO_APPROVE=1` | Bypass deploy confirmations in trusted automation |
 | `DESTROY_AUTO_APPROVE=1` | Bypass destroy confirmation in trusted automation |

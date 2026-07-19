@@ -10,8 +10,15 @@ image_name="${1:-polygon-rpc-proxy}"
 image_tag="${2:-dev}"
 image_ref="${image_name}:${image_tag}"
 engine="$(select_container_engine)"
+build_args=()
+
+# Podman defaults to OCI image metadata, which can omit Dockerfile
+# HEALTHCHECK configuration. Docker schema 2 preserves it for local consumers.
+if [[ "${engine##*/}" == "podman" ]]; then
+  build_args+=(--format docker)
+fi
 
 log "Container engine: ${engine}"
 log "Building ${image_ref}"
 cd "${REPO_ROOT}"
-"${engine}" build -t "${image_ref}" .
+"${engine}" build "${build_args[@]}" -t "${image_ref}" .

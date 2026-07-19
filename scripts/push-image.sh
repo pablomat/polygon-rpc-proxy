@@ -22,6 +22,12 @@ cd "$(dirname "$0")/.."
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/aws-common.sh"
 ENGINE="$(select_container_engine)"
 REGISTRY="${REPO%%/*}"
+BUILD_ARGS=()
+
+# Preserve Dockerfile HEALTHCHECK metadata when Podman is the selected builder.
+if [[ "${ENGINE##*/}" == "podman" ]]; then
+  BUILD_ARGS+=(--format docker)
+fi
 
 [[ "${TAG}" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || die "invalid container tag: ${TAG}"
 
@@ -31,7 +37,7 @@ aws ecr get-login-password --region "${REGION}" | "${ENGINE}" login --username A
 echo ">> building ${REPO}:${TAG}"
 # The ECS task runs LINUX/X86_64. Pinning the platform produces a compatible
 # image on ARM64 hosts.
-"${ENGINE}" build --platform linux/amd64 -t "${REPO}:${TAG}" .
+"${ENGINE}" build "${BUILD_ARGS[@]}" --platform linux/amd64 -t "${REPO}:${TAG}" .
 
 echo ">> pushing ${REPO}:${TAG}"
 "${ENGINE}" push "${REPO}:${TAG}"
