@@ -91,9 +91,16 @@ jobs:
           severity: CRITICAL,HIGH
           exit-code: "1"
           version: v0.72.0
+      - name: Trivy repository secrets
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: secret
+          exit-code: "1"
+          version: v0.72.0
       - name: Trivy misconfiguration (Dockerfile + Terraform)
-        # Load documented exceptions explicitly; the action does not discover
-        # this file automatically.
+        # Pass the documented exceptions explicitly so their scope is visible.
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs

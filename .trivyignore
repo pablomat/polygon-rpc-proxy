@@ -1,5 +1,6 @@
 # Trivy misconfiguration waivers are documented in README.md under
-# "Design choices and limitations". CI does not waive vulnerabilities.
+# "Design choices and limitations". CI does not waive vulnerabilities or
+# secrets.
 
 # AWS-0054: The zero-domain default forwards HTTP on port 80.
 # The HTTP default does not require external DNS or certificate ownership.

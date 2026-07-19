@@ -121,8 +121,8 @@ Podman builds use Docker schema 2 so Dockerfile health-check metadata is kept.
 
 Tests cover payload and header forwarding, batches, CORS, compression,
 request IDs, resource limits, cancellation, upstream failures, telemetry, and
-graceful shutdown. CI also scans dependencies, the container image,
-Dockerfile, and Terraform configuration.
+graceful shutdown. CI also scans dependencies, the repository for secrets,
+the container image, Dockerfile, and Terraform configuration.
 
 The runtime image contains a static binary, runs as a non-root user, and uses
 a pinned distroless base image.
