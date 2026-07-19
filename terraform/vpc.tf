@@ -3,6 +3,13 @@
 
 data "aws_availability_zones" "available" {
   state = "available"
+
+  # ALB and ECS Fargate subnets must use regional Availability Zones, not
+  # opted-in Local or Wavelength Zones that can also be returned as available.
+  filter {
+    name   = "zone-type"
+    values = ["availability-zone"]
+  }
 }
 
 locals {
