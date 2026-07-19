@@ -1,5 +1,6 @@
 IMAGE ?= polygon-rpc-proxy
 TAG   ?= dev
+CONTAINER_ENGINE ?=
 GOLANGCI_VERSION ?= v2.12.2
 
 .PHONY: help run test lint vet fmt golangci shellcheck scan image tf-validate aws-deploy aws-smoke aws-destroy
@@ -39,9 +40,9 @@ lint: fmt vet golangci test
 scan:
 	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
-## image: build the container image
+## image: build the container image with Docker or Podman
 image:
-	docker build -t $(IMAGE):$(TAG) .
+	CONTAINER_ENGINE="$(CONTAINER_ENGINE)" ./scripts/build-image.sh "$(IMAGE)" "$(TAG)"
 
 ## tf-validate: format-check and validate the Terraform
 tf-validate:

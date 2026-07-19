@@ -105,10 +105,14 @@ values per process. Additional labels are reported as `other`.
 make test          # race-enabled Go tests
 make lint          # formatting, vet, GolangCI-Lint, and tests
 make scan          # Go vulnerability analysis
-make image         # local container image
+make image         # local image with auto-detected Docker or Podman
 make tf-validate   # Terraform format and validation
 make shellcheck    # deployment script linting
 ```
+
+`make image` prefers a usable Docker installation and falls back to Podman.
+Set `CONTAINER_ENGINE=docker` or `CONTAINER_ENGINE=podman` to choose explicitly;
+`IMAGE` and `TAG` override the default `polygon-rpc-proxy:dev` image reference.
 
 Tests cover payload and header forwarding, batches, CORS, compression,
 request IDs, resource limits, cancellation, upstream failures, telemetry, and
