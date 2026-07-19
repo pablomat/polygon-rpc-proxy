@@ -1,0 +1,18 @@
+# Trivy misconfiguration waivers are documented in README.md under
+# "Design choices and limitations". CI does not waive vulnerabilities.
+
+# AWS-0054: The zero-domain default forwards HTTP on port 80.
+# The HTTP default does not require external DNS or certificate ownership.
+# Supplying public_hostname and route53_zone_id makes Terraform issue and
+# validate an ACM certificate, publish the service alias, and redirect port 80
+# to the HTTPS listener. The HTTP listener remains deliberate in both modes.
+AWS-0054
+
+# AWS-0053: Load balancer is exposed publicly.
+# The proxy is intended to expose a public RPC endpoint.
+AWS-0053
+
+# AWS-0104: Security group rule allows egress to 0.0.0.0/0.
+# Task egress allows TCP 443 to public destinations because the upstream RPC is
+# internet-facing. ECR, S3, and CloudWatch Logs also use port 443 through NAT.
+AWS-0104

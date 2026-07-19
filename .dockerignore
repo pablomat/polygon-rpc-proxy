@@ -1,0 +1,22 @@
+# Keep the build context minimal, deterministic, and free of secrets.
+.git
+.github
+.gitignore
+.dockerignore
+Dockerfile
+Makefile
+README.md
+LICENSE
+terraform/
+scripts/
+*.md
+
+# Local build/test artifacts
+/proxy
+/bin/
+*.out
+coverage.*
+
+# Local env / secrets
+.env
+*.pem

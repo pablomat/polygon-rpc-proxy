@@ -1,0 +1,144 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    # Weekly refresh catches new vulnerabilities in pinned dependencies.
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+
+# Cancel superseded in-flight runs for the same branch/PR.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then echo "not gofmt-clean:"; echo "$out"; exit 1; fi
+      - name: go vet
+        run: go vet ./...
+      - name: golangci-lint
+        # Pin the prebuilt release so changes require an explicit version bump.
+        uses: golangci/golangci-lint-action@v9.3.0
+        with:
+          version: v2.12.2
+      - name: hadolint (Dockerfile)
+        uses: hadolint/hadolint-action@v3.3.0
+        with:
+          dockerfile: Dockerfile
+          failure-threshold: info   # matches the bare `hadolint` CLI default
+      - name: shellcheck (deployment scripts)
+        run: >-
+          docker run --rm -v "$PWD:/mnt:ro" -w /mnt
+          docker.io/koalaman/shellcheck-alpine@sha256:976f082cad2207f4cf3dedd49074b9dc2ea384d5939054e4d2befb63b3d3995f
+          shellcheck scripts/*.sh
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.9.5"
+      - name: terraform fmt
+        run: terraform -chdir=terraform fmt -check -recursive
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: go test (race + coverage)
+        run: go test -race -count=1 -covermode=atomic -coverprofile=coverage.out ./...
+      - name: coverage summary
+        run: |
+          total=$(go tool cover -func=coverage.out | tail -1 | awk '{print $3}')
+          echo "### Test coverage: $total" >> "$GITHUB_STEP_SUMMARY"
+          echo "Total coverage: $total"
+
+  security:
+    name: Security scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: govulncheck (Go code + dependencies)
+        # Clear the stable default so govulncheck uses the version in go.mod.
+        uses: golang/govulncheck-action@v1.1.0
+        with:
+          go-version-input: ""
+          go-version-file: go.mod
+          repo-checkout: false   # checkout already ran above
+      - name: Trivy dependency vulnerabilities
+        # Pin the CLI; its vulnerability database is refreshed on each run.
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+          version: v0.72.0
+      - name: Trivy misconfiguration (Dockerfile + Terraform)
+        # Load documented exceptions explicitly; the action does not discover
+        # this file automatically.
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: misconfig
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+          trivyignores: .trivyignore
+          version: v0.72.0
+      - name: Build container image
+        run: docker build -t polygon-rpc-proxy:ci .
+      - name: Trivy image vulnerabilities
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: polygon-rpc-proxy:ci
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+          version: v0.72.0
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: go build
+        run: go build ./...
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.9.5"
+      - name: terraform validate
+        run: |
+          terraform -chdir=terraform init -backend=false -input=false
+          terraform -chdir=terraform validate
+
+  # Stable branch-protection status; keep needs aligned with blocking jobs.
+  gate:
+    name: Gate
+    runs-on: ubuntu-latest
+    needs: [lint, test, security, build]
+    if: ${{ always() }}
+    steps:
+      - name: Fail unless every job succeeded
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}
+        run: exit 1

@@ -1,0 +1,30 @@
+# Binaries
+/proxy
+/bin/
+*.exe
+
+# Test / coverage
+*.out
+coverage.*
+
+# Terraform (the provider lock file IS committed, for reproducible installs)
+terraform/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+!*.tfvars.example
+terraform/generated.auto.tfvars.json
+crash.log
+
+# Local env / secrets
+.env
+*.pem
+
+# Local working notes (never publish)
+*.local.md
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/

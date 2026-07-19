@@ -1,0 +1,4 @@
+# Optional TLS configuration. Copy this file to deployment.tfvars and replace
+# both values with a hostname and an existing public Route 53 hosted zone.
+public_hostname = "polygon.example.com"
+route53_zone_id = "Z0123456789ABC"

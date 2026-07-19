@@ -1,0 +1,24 @@
+version: "2"
+linters:
+  default: standard   # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - gosec           # security-focused checks
+    - misspell        # spelling in comments/strings
+    - bodyclose       # HTTP response bodies are closed
+    - revive          # style
+    - noctx           # outbound HTTP requests must carry a context
+  exclusions:
+    rules:
+      # In tests, http.Get / httptest.NewRequest / net.Listen without an
+      # explicit context are idiomatic; noctx guards production code only.
+      - path: _test\.go
+        linters:
+          - noctx
+formatters:
+  enable:
+    - gofumpt         # stricter superset of gofmt
+    - goimports       # group and tidy imports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/pablomat/polygon-rpc-proxy
