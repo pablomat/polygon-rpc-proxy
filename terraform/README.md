@@ -83,6 +83,10 @@ the DNS validation record, ACM certificate, HTTPS listener, HTTP redirect, and
 service alias. It does not manage the registered domain or hosted zone, and
 those resources are preserved during destroy.
 
+Configure RPC clients with Terraform's HTTPS `rpc_url` output directly. The
+port 80 listener is redirect-only when TLS is enabled and is not intended to
+forward JSON-RPC POST requests.
+
 `terraform/deployment.tfvars` is loaded automatically. Use `TF_VARS_FILE` to
 select another file.
 

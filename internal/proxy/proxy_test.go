@@ -122,6 +122,41 @@ func TestProxyPreservesApplicationHeadersWithoutAddingDefaults(t *testing.T) {
 	}
 }
 
+func TestProxyStripsForwardingHeaders(t *testing.T) {
+	received := make(chan http.Header, 1)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received <- r.Header.Clone()
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+
+	h, _ := newTestHandler(t, upstream.URL, time.Second)
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
+	forwardingHeaders := []string{
+		"Forwarded",
+		"X-Forwarded-For",
+		"X-Forwarded-Host",
+		"X-Forwarded-Proto",
+		"X-Forwarded-Port",
+		"X-Forwarded-Client-Cert",
+	}
+	for _, name := range forwardingHeaders {
+		req.Header.Set(name, "client-controlled")
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("response status = %d", rec.Code)
+	}
+
+	gotHeaders := <-received
+	for _, name := range forwardingHeaders {
+		if got := gotHeaders.Values(name); len(got) != 0 {
+			t.Errorf("upstream %s = %q, want absent", name, got)
+		}
+	}
+}
+
 func TestProxyDoesNotDefaultResponseContentType(t *testing.T) {
 	transport := roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return &http.Response{

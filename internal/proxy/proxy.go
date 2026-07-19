@@ -14,6 +14,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -66,6 +67,15 @@ func New(cfg config.Config, client *http.Client, log *slog.Logger, metrics *Metr
 			pr.Out.URL.RawQuery = target.RawQuery
 			pr.Out.URL.ForceQuery = target.ForceQuery
 			pr.Out.Host = target.Host
+			// Do not disclose client- or ALB-supplied network metadata to the
+			// upstream. ReverseProxy removes the standard variants before this
+			// hook; the prefix pass also covers extensions such as the port.
+			pr.Out.Header.Del("Forwarded")
+			for name := range pr.Out.Header {
+				if strings.HasPrefix(strings.ToLower(name), "x-forwarded-") {
+					pr.Out.Header.Del(name)
+				}
+			}
 			// The middleware owns this header; drop any inbound value.
 			pr.Out.Header.Del(requestIDHeader)
 			if id := requestID(pr.Out.Context()); id != "" {
