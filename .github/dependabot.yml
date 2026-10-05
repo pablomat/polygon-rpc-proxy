@@ -1,18 +1,23 @@
 version: 2
+# Disable routine version PRs; applicable security updates remain enabled.
 updates:
   - package-ecosystem: gomod
     directory: "/"
+    open-pull-requests-limit: 0
     schedule:
       interval: weekly
   - package-ecosystem: github-actions
     directory: "/"
+    open-pull-requests-limit: 0
     schedule:
       interval: weekly
   - package-ecosystem: terraform
     directory: "/terraform"
+    open-pull-requests-limit: 0
     schedule:
       interval: weekly
   - package-ecosystem: docker
     directory: "/"
+    open-pull-requests-limit: 0
     schedule:
       interval: weekly

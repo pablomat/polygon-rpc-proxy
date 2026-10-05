@@ -1,15 +1,18 @@
 # Polygon JSON-RPC proxy
 
-![ci](https://github.com/pablomat/polygon-rpc-proxy/actions/workflows/ci.yml/badge.svg)
+[![ci](https://github.com/pablomat/polygon-rpc-proxy/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/pablomat/polygon-rpc-proxy/actions/workflows/ci.yml)
 
 A small Go reverse proxy for `https://polygon.drpc.org`, with automated tests
-and Terraform for deployment to AWS ECS Fargate.
+and an optional Terraform deployment to AWS ECS Fargate. Running locally and
+validating the project require no AWS account or hosted infrastructure.
 
 The proxy forwards JSON-RPC payloads without implementing blockchain protocol
 semantics. It adds bounded resource use, request correlation, structured logs,
 and method-aware Prometheus metrics.
 
 ## Request flow
+
+The optional AWS deployment places the proxy behind an Application Load Balancer:
 
 ```mermaid
 flowchart LR
@@ -123,6 +126,12 @@ Tests cover payload and header forwarding, batches, CORS, compression,
 request IDs, resource limits, cancellation, upstream failures, telemetry, and
 graceful shutdown. CI also scans dependencies, the repository for secrets,
 the container image, Dockerfile, and Terraform configuration.
+
+CI runs on pushes to `main`, pull requests, and manual requests. Terraform is
+validated without deploying AWS resources. The badge reports the latest CI
+result on `main`; vulnerability scans use current advisory data on each run.
+Dependabot is configured for applicable security updates rather than routine
+version updates. Go toolchain and base-image fixes may require manual updates.
 
 The runtime image contains a static binary, runs as a non-root user, and uses
 a pinned distroless base image.
